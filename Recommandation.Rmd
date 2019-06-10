@@ -1,0 +1,328 @@
+---
+title: "Recommandation System"
+output: 
+  html_notebook:
+    toc: yes
+    toc_float: yes
+    toc_depth: 4
+author: Urvi Chandreshkumar Sheth
+---
+
+#Problem 2
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library('textreuse')
+library(magrittr)
+library(dplyr) 
+library(stats)
+library(data.table)
+library(reshape2)
+library(lsa)
+```
+
+
+```{r}
+rm(list=ls())
+userid <-  20430232%%671
+movies.file <- read.csv(file=file.path("ml-latest-small", "movies.csv"), header = T, sep = ",")
+ratings.file <- read.csv(file=file.path("ml-latest-small", "ratings.csv"), header = T, sep = ",")
+```
+
+###User Profile
+
+### get movies rated for user_id from ratings.file 
+### get details of movie rated by user from movies.csv 
+```{r}
+user.movies <- ratings.file[which(ratings.file$userId == userid), ]
+user.genere.list <- movies.file[which(movies.file$movieId %in% user.movies$movieId),]
+user.genere.list$genres <- as.character(user.genere.list$genres)
+row.names(user.genere.list) <- 1:nrow(user.genere.list)
+```
+
+### now take each genere from one entry and put it into different dimensions 
+### create matrix of howmany number of movies watched by user by genres 
+### store it in the file in ml-latest-small 
+```{r}
+allGenere <- c("Action", "Adventure", "Animation", "Children", "Comedy", "Crime", "Documentary", "Drama", "Fantasy","Film-Noir", "Horror", "IMAX", "Musical", "Mystery", "Romance", "Sci-Fi", "Thriller", "War", "Western", "(no genres listed)")
+
+newrowcount <- nrow(user.genere.list) + 1 # extra row for avg
+
+profile.user <- matrix(as.numeric(0),nrow = newrowcount,ncol = length(allGenere))
+
+colnames(profile.user) <- factor(allGenere)
+
+rownamesnew <- user.genere.list$movieId 
+rownamesnew[length(rownamesnew )+ 1] <- "AVG"   #adding avg row
+row.names(profile.user) <- rownamesnew
+
+profile.user[nrow(user.genere.list),1] <- 0
+
+
+for (i in 1:nrow(user.genere.list)) {
+    list.genre <- unlist(strsplit(user.genere.list[i,]$genres,split="[|]"))
+    for (k in 1:length(list.genre)){
+        profile.user[i,list.genre[k]] <- as.integer(1)
+    }
+}
+#calculating mean
+for(j in 1:length(allGenere)){
+  profile.user[newrowcount,j] <- mean(as.numeric(profile.user[1:nrow(user.genere.list),j]))
+}
+
+head(profile.user)
+filename <- paste("userprofile_",as.character(userid),".csv", sep = "")
+write.csv(profile.user,file =file.path("ml-latest-small", filename))
+
+```
+
+
+### Movie Profile
+### sample 10 movies
+```{r}
+sample_length <-  10
+random_sample <- movies.file[sample(1:nrow(movies.file), sample_length, replace = FALSE), ]
+random_sample$genres <- as.character(random_sample$genres)
+rownames(random_sample) <- 1:sample_length
+random_sample
+```
+
+### create movie profile
+```{r}
+profile.movie <- matrix(as.numeric(0),nrow = sample_length ,ncol = length(allGenere))
+colnames(profile.movie) <- factor(allGenere)
+row.names(profile.movie) <- random_sample$movieId
+
+for (i in 1:nrow(random_sample)) {
+    list.genre <- unlist(strsplit(random_sample[i,]$genres,split="[|]"))
+    for (k in 1:length(list.genre)){
+        profile.movie[i,list.genre[k]] <- as.integer(1)
+    }
+}
+
+head(profile.movie)
+filename <- paste("movieprofile_",as.character(userid),".csv", sep = "")
+write.csv(profile.movie,file =file.path("ml-latest-small", filename))
+```
+
+### cosine sim
+```{r}
+my.cosine <- function(x, y) {
+  sum(x*y)/(norm(x, type="2") * norm(y, type="2"))
+}
+
+final_random_sample <- random_sample[c(-3)]
+Avg_vector<- profile.user[nrow(profile.user), ] 
+
+for(i in 1:nrow(profile.movie)){
+    final_random_sample[i,"similarity"] <- my.cosine(profile.movie[i,], Avg_vector)    
+}
+final_random_sample <- final_random_sample[order(final_random_sample$similarity,decreasing = TRUE),]
+final_top_5 <- final_random_sample[1:5,]
+rownames(final_top_5) <- NULL
+
+final_top_5
+```
+
+###Collaborative Filtering
+
+```{r}
+rm(list=ls())
+userid <-  191
+movies.file <- read.csv(file=file.path("ml-latest-small", "movies.csv"), header = T, sep = ",")
+ratings.file <- read.csv(file=file.path("ml-latest-small", "ratings.csv"), header = T, sep = ",")
+
+movie.by.user <- ratings.file %>%
+  left_join(movies.file, by = c("movieId" = "movieId")) %>%
+  filter(ratings.file$userId == userid)
+
+movie.by.user
+```
+
+### test observation
+```{r}
+test.ratings <- movie.by.user[which(movie.by.user$movieId %in% c(150,296,380,590)),c(2,3)]
+ratings.file[which(ratings.file$userId == 191 & ratings.file$movieId %in% c(150,296,380,590)),3] <- "NA"
+
+```
+
+### a Prediction using user-user similarity:
+
+```{r}
+ratings.file <- data.frame(lapply(ratings.file, as.character),stringsAsFactors = FALSE)
+neighbours_191 <- c("225","317","415","50","568") 
+jacccard_191 <- c(0.2420382,0.4033613,0.3255814,0.2009804,0.2105263)
+ros <- c("191",neighbours_191)
+
+user225 <- subset(ratings.file,ratings.file$userId==225)
+user317 <- subset(ratings.file,ratings.file$userId==317)
+user415 <-subset(ratings.file,ratings.file$userId==415)
+user50 <- subset(ratings.file,ratings.file$userId==50)
+user568 <-subset(ratings.file,ratings.file$userId==568)
+
+utility <- matrix(as.numeric(0),nrow = 6,ncol = 29)
+
+movie_list <- intersect(movie.by.user$movieId,user225$movieId)
+movie_list <- c(unique(movie_list),intersect(movie.by.user$movieId,user415$movieId))
+movie_list <- c(unique(movie_list),intersect(movie.by.user$movieId,user50$movieId))
+movie_list <- c(unique(movie_list),intersect(movie.by.user$movieId,user568$movieId))
+movie_list <- c(unique(movie_list),intersect(movie.by.user$movieId,user317$movieId))
+movie_list <- unique(movie_list)
+
+colnames(utility) <- movie_list
+rownames(utility) <- ros
+
+for(i in 1:length(ros)){
+  subset_data <- subset(ratings.file,ratings.file$userId==ros[i])
+  temp.user.id <- subset_data[1,1]
+  for(j in 1:length(movie_list)){
+    movie.id <- movie_list[j]
+    rating.value <- subset_data[which(movie.id  == subset_data$movieId),3]
+    utility[temp.user.id,movie.id] <- ifelse(identical(rating.value, character(0)),NA ,rating.value)
+  }
+}
+
+utility
+
+
+```
+
+### Predicition
+```{r}
+random_neighbours <- neighbours_191[sample(1:length(neighbours_191), 3, replace = FALSE)]
+final_ans <- data.frame()
+rmse.n <- 0
+for(i in 1:nrow(test.ratings)){
+  numerator <- 0
+  denominator <- 0
+  for(j in 1:length(random_neighbours)){
+    neighbour.id<- random_neighbours[j]
+    jaccard.sim <- as.numeric(jacccard_191[which(neighbours_191 == neighbour.id)])
+    index <- which(ros == neighbour.id)
+    movie.index<- which(movie_list == test.ratings$movieId[i] )
+    
+    rating.value <- as.numeric(utility[index, movie.index])
+    numerator <-  numerator + (jaccard.sim * rating.value)
+    denominator <- denominator + jaccard.sim
+  }
+  movieId = as.character(test.ratings$movieId[i])
+  ratings = (numerator) / (denominator)
+  rmse.n = round((ratings - test.ratings$rating[i])^2,4)
+  final_ans  <- rbind (final_ans, data.frame(movieId, ratings))
+  
+}
+
+movieId = "RMSE"
+ratings <- sqrt(rmse.n/4)
+
+final_ans  <- rbind (final_ans, data.frame(movieId, ratings))
+cat("\n User ID 191, 5 random user IDs: ", ros)
+cat("\n Using user-user similarity, User ID 191 will rate the movies as follows:")
+print(final_ans)
+```
+
+
+
+### item-item
+
+```{r}
+transpose_utility <- matrix(as.numeric(0),nrow = 29,ncol = 6)
+transpose_utility <- t(utility)
+transpose_utility
+
+```
+```{r}
+mean_utility <- transpose_utility
+mean_utility[is.na(mean_utility)] <- 0
+
+for(i in 1:nrow(transpose_utility)){
+  temp.val <- mean_utility[i,]
+  temp.mean <- mean(as.double(temp.val),na.rm = T)
+  mean_utility[i,] <- round(temp.mean - as.double(mean_utility[i,]),3)
+}
+
+colnames(mean_utility) <- ros
+rownames(mean_utility) <- movie_list
+cat("\n\n")
+mean_utility
+```
+### new cosine similarity
+
+```{r}
+my.cosine <- function(x, y) {
+  sum(x*y)/(norm(x, type="2") * norm(y, type="2"))
+}
+non_mean_utility <- transpose_utility
+
+non_mean_utility[is.na(non_mean_utility)] <- 0
+non_mean_utility[which(non_mean_utility == "NA"),1] <- 0
+new_cosine <- array(dim = c(nrow(non_mean_utility),4))
+
+for(j in 1:nrow(test.ratings)){
+  for(i in 1:nrow(non_mean_utility)){
+    if(movie_list[i] %in% test.ratings$movieId){
+      new_cosine[i,j] <- 1
+    } else{
+      colInMovieList <- which(movie_list == test.ratings[j,1])
+      new_cosine[i,j] <- round(my.cosine(as.double(non_mean_utility[i,]), as.double(non_mean_utility[colInMovieList,])),3)
+    }
+  }
+}
+row.names(new_cosine) <- movie_list
+colnames(new_cosine) <- test.ratings$movieId
+new_cosine
+```
+
+### prediticion item item
+```{r}
+
+transpose_utility[is.na(transpose_utility)] <- 0
+transpose_utility[which(transpose_utility == "NA"),1] <- 0
+
+item_final_ans <- data.frame()
+rmse.n = 0
+neighbours_movies <- movie_list[which(!(movie_list %in% test.ratings$movieId))]
+random_neighbours <- neighbours_movies[sample(1:length(neighbours_movies), 3, replace = FALSE)]
+
+for(i in 1:nrow(test.ratings)){
+  k=0
+  movieId <- test.ratings[i,]$movieId
+  numerator <- 0
+  denominator <- 0
+  user_cosine_values <- new_cosine[,i]
+  for(j in 1:length(random_neighbours)){
+    
+    movieNeighbourIdIndex <- which(random_neighbours[j] == movie_list)
+    if(user_cosine_values[[movieNeighbourIdIndex]] > 0  && user_cosine_values[[movieNeighbourIdIndex]] < 1){
+      numerator <-  numerator + (user_cosine_values[[movieNeighbourIdIndex]] * as.numeric(transpose_utility[movieNeighbourIdIndex,1]))
+      denominator <- denominator + user_cosine_values[[movieNeighbourIdIndex]]
+    }
+  }
+  ratings = round((numerator) / (denominator),4)
+  rmse.n = rmse.n + round((ratings - test.ratings$rating[i])^2,4)
+  item_final_ans  <- rbind (item_final_ans, data.frame(movieId, ratings))
+}
+
+movieId = "RMSE"
+ratings <- sqrt(rmse.n/4)
+
+item_final_ans  <- rbind (item_final_ans, data.frame(movieId, ratings))
+
+cat("\n User ID 191, 5 random user IDs: ", ros)
+cat("\n Using user-user similarity, User ID 191 will rate the movies as follows:")
+print(item_final_ans)
+```
+
+
+
+
+
+
+
+
+
+
+
+

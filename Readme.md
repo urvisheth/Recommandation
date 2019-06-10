@@ -63,14 +63,14 @@ There are 36 users who match user ID 191; the following 12 users with high simil
 						User ID 317 		0.4033613
 						User ID 415 		0.3255814
 						User ID 375 		0.3049645
-						User ID 64 			0.2753623
+						User ID 64 		0.2753623
 						User ID 556 		0.2727273
-						User ID 82 			0.2527473
+						User ID 82 		0.2527473
 						User ID 225 		0.2420382
 						User ID 657 		0.2262774
 						User ID 266 		0.2216216
 						User ID 568 		0.2105263
-						User ID 50 			0.2009804
+						User ID 50 		0.2009804
 
 
 Because we are interested in measuring the performance of our recommender engine’s prediction, we will treat 4 movie IDs from User ID 191 as test observations. These four movie IDs are: 150, 296, 380, and 590. Write down the recommendation that user ID 191 provides to these movies separately and set the ratings of these movies to NA for User ID 191. We will assume that User ID 191 has not rated these movies, allowing us to predict the rating that User ID 191 would give to that movie and to check the error of our model using RMSE.
